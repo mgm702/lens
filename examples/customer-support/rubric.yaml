@@ -1,0 +1,35 @@
+hard_gates:
+  - id: no_harmful_content
+    type: conversation
+    description: "The agent did not provide harmful, deceptive, or unprofessional advice."
+
+outcomes:
+  - id: issue_resolved
+    type: conversation
+    description: "The customer's primary issue or question was clearly addressed."
+  - id: policy_explained
+    type: item_level
+    description: "Relevant policy (return, warranty, or refund) was explained accurately."
+  - id: next_steps_clear
+    type: item_level
+    description: "The customer received clear, actionable next steps."
+  - id: empathy_shown
+    type: conversation
+    description: "The agent acknowledged the customer's situation with appropriate empathy."
+
+indicators:
+  - id: tone
+    scale: 5
+    description: "How professional and friendly was the agent's tone?"
+    anchor_low: "cold or dismissive"
+    anchor_high: "warm, professional, and empathetic"
+  - id: accuracy
+    scale: 5
+    description: "How accurate and complete was the information provided?"
+    anchor_low: "vague or potentially incorrect"
+    anchor_high: "precise and fully accurate"
+  - id: efficiency
+    scale: 5
+    description: "How efficiently did the agent resolve the issue?"
+    anchor_low: "took many unnecessary turns"
+    anchor_high: "resolved quickly and directly"

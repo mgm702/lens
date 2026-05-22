@@ -1,0 +1,29 @@
+[
+  {
+    "id": "P001",
+    "name": "Jordan",
+    "summary": "A frustrated customer whose order arrived damaged and wants a refund.",
+    "emotional_state": "frustrated",
+    "profile": {
+      "account_type": "premium",
+      "order_number": "ORD-48291",
+      "days_since_purchase": 3,
+      "issue": "broken screen protector"
+    },
+    "knowledge_gaps": ["return policy details", "refund timeline"],
+    "constraints": {}
+  },
+  {
+    "id": "P002",
+    "name": "Maya",
+    "summary": "A curious first-time customer with questions before making a purchase.",
+    "emotional_state": "curious",
+    "profile": {
+      "account_type": "new",
+      "interest": "wireless headphones",
+      "budget": "$150"
+    },
+    "knowledge_gaps": ["product compatibility", "warranty coverage"],
+    "constraints": {"budget": "$150"}
+  }
+]

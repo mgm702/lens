@@ -1,0 +1,24 @@
+[
+  {
+    "id": "P001",
+    "name": "Alex",
+    "summary": "A first-time user who is unfamiliar with the system.",
+    "emotional_state": "curious",
+    "profile": {
+      "experience": "beginner"
+    },
+    "knowledge_gaps": ["system features", "pricing"],
+    "constraints": {}
+  },
+  {
+    "id": "P002",
+    "name": "Sam",
+    "summary": "An experienced user with specific technical needs.",
+    "emotional_state": "focused",
+    "profile": {
+      "experience": "advanced"
+    },
+    "knowledge_gaps": [],
+    "constraints": {"time": "limited"}
+  }
+]

@@ -1,0 +1,34 @@
+name: my-eval
+description: "Describe your experiment here"
+
+target:
+  type: anthropic        # anthropic | openai | http | bedrock | mock
+  model: claude-haiku-4-5-20251001
+  system_prompt_file: prompts/system.md
+  max_tokens: 1024
+
+simulator:
+  provider: anthropic
+  model: claude-haiku-4-5-20251001
+  prompt_file: prompts/user_sim.md
+  max_tokens: 512
+
+judge:
+  provider: anthropic
+  model: claude-sonnet-4-6
+  prompt_file: prompts/judge.md
+  max_tokens: 1024
+  rubric_file: rubric.yaml
+  verify_claims: false
+
+personas_file: personas.json
+scenarios_file: scenarios.json
+
+info_levels:
+  - full
+  - partial
+
+reps: 1
+max_turns: 10
+workers: 2
+output_dir: ""   # defaults to results/<name>-<timestamp>

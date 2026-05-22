@@ -1,0 +1,33 @@
+name: customer-support-smoke
+description: "Quick smoke test for a customer support AI — 2 personas, 2 scenarios, 1 rep"
+
+target:
+  type: anthropic
+  model: claude-haiku-4-5-20251001
+  system_prompt_file: prompts/system.md
+  max_tokens: 512
+
+simulator:
+  provider: anthropic
+  model: claude-haiku-4-5-20251001
+  prompt_file: prompts/user_sim.md
+  max_tokens: 256
+
+judge:
+  provider: anthropic
+  model: claude-haiku-4-5-20251001
+  prompt_file: prompts/judge.md
+  max_tokens: 1024
+  rubric_file: rubric.yaml
+  verify_claims: false
+
+personas_file: personas.json
+scenarios_file: scenarios.json
+
+info_levels:
+  - full
+
+reps: 1
+max_turns: 6
+workers: 2
+output_dir: results/customer-support-smoke

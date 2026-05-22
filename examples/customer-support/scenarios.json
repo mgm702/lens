@@ -1,0 +1,24 @@
+[
+  {
+    "id": "T001",
+    "name": "Return and Refund",
+    "description": "Customer needs help processing a return for a defective item.",
+    "opening_message": "Hi, I need help with a return. My order arrived damaged.",
+    "success_criteria": [
+      "Customer is told how to initiate the return",
+      "Customer knows the refund timeline",
+      "Customer feels their issue was taken seriously"
+    ]
+  },
+  {
+    "id": "T002",
+    "name": "Pre-Purchase Inquiry",
+    "description": "Customer asks questions to decide whether to make a purchase.",
+    "opening_message": "Hi, I'm thinking about buying some wireless headphones. Can you help?",
+    "success_criteria": [
+      "Customer gets product recommendations within their budget",
+      "Customer understands warranty and return policy",
+      "Customer has enough information to make a decision"
+    ]
+  }
+]

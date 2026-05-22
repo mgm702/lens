@@ -1,0 +1,22 @@
+[
+  {
+    "id": "T001",
+    "name": "Basic Inquiry",
+    "description": "User asks a basic question about the system.",
+    "opening_message": "Hi, I have a question about how this works.",
+    "success_criteria": [
+      "User gets a clear answer",
+      "User knows what to do next"
+    ]
+  },
+  {
+    "id": "T002",
+    "name": "Complex Request",
+    "description": "User makes a multi-part request requiring detailed guidance.",
+    "opening_message": "I need help with something more complex.",
+    "success_criteria": [
+      "All parts of the request are addressed",
+      "User has actionable next steps"
+    ]
+  }
+]
