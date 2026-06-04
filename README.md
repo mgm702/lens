@@ -4,20 +4,34 @@
 
 ## Quick Start
 
+**1. Install**
+
 ```bash
-# Install via Homebrew (macOS/Linux)
+# macOS/Linux via Homebrew (recommended)
 brew install mgm702/lens/lens
 
 # Or build from source
 go install github.com/mgm702/lens/cmd/lens@latest
 ```
 
-Run the included customer-support smoke test (requires `ANTHROPIC_API_KEY`):
+**2. Try the included example**
 
 ```bash
+export ANTHROPIC_API_KEY=...
 lens run examples/customer-support/experiment-smoke.yaml
 lens analyze results/customer-support-smoke/
 lens report results/customer-support-smoke/ --open
+```
+
+**3. Start your own experiment**
+
+```bash
+lens new my-chatbot-eval
+cd my-chatbot-eval
+# Edit experiment.yaml, personas.json, scenarios.json, rubric.yaml, prompts/
+lens validate experiment.yaml   # check config before spending on API calls
+lens run experiment.yaml
+lens analyze results/my-chatbot-eval-*/
 ```
 
 ## What It Does
@@ -29,16 +43,6 @@ Lens orchestrates three components:
 3. **LLM judge** — scores the completed transcript against a rubric you define
 
 Each (persona × scenario × info_level × rep) combination runs concurrently in a bounded worker pool. Results are written as per-case JSON + a flat CSV, and an optional HTML report lets you browse individual transcripts.
-
-## Scaffold a New Experiment
-
-```bash
-lens new my-chatbot-eval
-cd my-chatbot-eval
-# Edit experiment.yaml, personas.json, scenarios.json, rubric.yaml, prompts/
-lens validate experiment.yaml
-lens run experiment.yaml
-```
 
 ## Adapters
 
@@ -53,6 +57,41 @@ lens run experiment.yaml
 ```bash
 lens adapters list
 ```
+
+## .env Files
+
+Lens automatically loads a `.env` file from the same directory as your experiment file. This means you never need to `export` variables manually before running.
+
+Create a `.env` next to your `experiment.yaml`:
+
+```bash
+# .env
+ANTHROPIC_API_KEY=your-key-here
+RAILS_BASE_URL=https://your-api.example.com
+ZETTA_TEST_USERS=[{"email":"test@example.com","password":"secret"}]
+```
+
+Then just run:
+
+```bash
+lens run experiment.yaml
+```
+
+Variables already set in your shell always take precedence over `.env`. Add `.env` to your `.gitignore` to avoid committing secrets — use `.env.example` (checked in, values redacted) as a reference for other contributors.
+
+## Environment Variables
+
+| Variable | Required for | Description |
+|----------|-------------|-------------|
+| `ANTHROPIC_API_KEY` | `anthropic` adapter, simulator, judge | Anthropic API key |
+| `OPENAI_API_KEY` | `openai` adapter, simulator, judge | OpenAI API key |
+| `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` | `bedrock` adapter | AWS credentials (static) |
+| `AWS_PROFILE` | `bedrock` adapter | AWS credentials (profile-based, alternative to key pair) |
+| `AWS_REGION` | `bedrock` adapter | AWS region (e.g. `us-east-1`) |
+| *(user-defined)* | `http` adapter | Set `auth.token_env` in your experiment config to the name of the env var holding your bearer token or API key |
+| `LENS_INTEGRATION_TESTS` | running integration tests | Set to any non-empty value to enable live adapter tests |
+
+> **Note:** The simulator and judge use the same provider credentials as the target. If your target is `bedrock` but your judge is `anthropic`, you need both `ANTHROPIC_API_KEY` and AWS credentials set.
 
 ## Configuration
 
@@ -117,6 +156,51 @@ indicators:
 ```
 
 **Composite score**: any hard gate failure → 0.0; otherwise mean of (item_level fraction passing, conversation fraction passing).
+
+## HTML Report
+
+`lens report <results-dir> --open` builds an interactive HTML report for browsing results.
+
+**Results overview** — composite score, completion rate, and a sortable case table:
+
+![Lens report overview](docs/images/report-overview.png)
+
+**Transcript view** — full conversation with per-turn scoring and judge notes:
+
+![Lens transcript view](docs/images/report-transcript.png)
+
+## Interpreting Results
+
+Running `lens analyze <results-dir>` prints a summary table:
+
+```
+info_level     cases   composite   done%   errors
+----------------------------------------------------------------------
+full              20       0.873     85%        2
+partial           20       0.791     90%        0
+
+Total: 40 cases
+```
+
+**Columns:**
+- `cases` — number of (persona × scenario × rep) combinations in this group
+- `composite` — mean score from 0.0–1.0; any hard gate failure forces a case to 0.0, otherwise it is the mean of all outcome pass rates
+- `done%` — percentage of conversations that ended naturally (vs. hitting `max_turns`)
+- `errors` — cases that failed before scoring (e.g. adapter error, network timeout)
+
+**Flags:**
+```bash
+lens analyze results/my-eval/ --group-by persona            # break down by persona
+lens analyze results/my-eval/ --group-by scenario           # break down by scenario
+lens analyze results/my-eval/ --group-by persona,scenario   # cross-tab
+lens analyze results/my-eval/ --format json                 # machine-readable output
+lens analyze results/my-eval/ --format csv                  # for spreadsheets
+```
+
+**What to act on:**
+- `composite < 0.8` — investigate the per-case JSON in `results/` to find which rubric outcomes are failing
+- `done% < 80%` — conversations are hitting `max_turns`; increase `max_turns` in your experiment config or tighten your simulator prompt
+- `errors > 0` — check credentials and target availability; errored cases are excluded from the composite mean
 
 ## License
 
