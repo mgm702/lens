@@ -49,6 +49,17 @@ changelog:
       - Merge pull request
       - Merge branch
 
+brews:
+  - name: lens
+    repository:
+      owner: mgm702
+      name: homebrew-lens
+    homepage: "https://github.com/mgm702/lens"
+    description: "Domain-agnostic conversational AI evaluation harness"
+    license: "MIT"
+    test: |
+      system "#{bin}/lens", "--version"
+
 release:
   github:
     owner: mgm702
