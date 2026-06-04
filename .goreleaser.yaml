@@ -54,6 +54,7 @@ brews:
     repository:
       owner: mgm702
       name: homebrew-lens
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     homepage: "https://github.com/mgm702/lens"
     description: "Domain-agnostic conversational AI evaluation harness"
     license: "MIT"
