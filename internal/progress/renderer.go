@@ -9,7 +9,6 @@ import (
 
 	"github.com/vbauerster/mpb/v8"
 	"github.com/vbauerster/mpb/v8/decor"
-	"golang.org/x/sys/unix"
 )
 
 // Renderer drives a live progress bar and per-case log during a lens run.
@@ -101,14 +100,14 @@ func (r *Renderer) Run() {
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-// isTTY reports whether w is a terminal.
+// isTTY reports whether w is a terminal. Implemented per-platform in
+// renderer_unix.go and renderer_windows.go.
 func isTTY(w io.Writer) bool {
 	f, ok := w.(*os.File)
 	if !ok {
 		return false
 	}
-	_, err := unix.IoctlGetWinsize(int(f.Fd()), unix.TIOCGWINSZ)
-	return err == nil
+	return isTerminal(f)
 }
 
 // milliDuration converts milliseconds to time.Duration for mpb's EWMA ETA estimator.
