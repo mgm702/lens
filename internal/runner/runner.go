@@ -189,6 +189,7 @@ func (r *Runner) runOne(ctx context.Context, c Case) results.CaseResult {
 		ScenarioID: c.Scenario.ID,
 		InfoLevel:  c.InfoLevel,
 		Rep:        c.Rep,
+		RunAt:      start,
 	}
 
 	r.emit(progress.Event{Type: progress.EventCaseStarted, CaseLabel: c.Label})

@@ -13,7 +13,13 @@ import (
 
 // Load reads an experiment YAML file, expands ${ENV_VAR} references in string
 // values, and applies sensible defaults for omitted fields.
+//
+// If a .env file exists in the same directory as the experiment file, it is
+// loaded first so its KEY=VALUE pairs are available for ${VAR} expansion.
+// Variables already set in the shell environment take precedence over .env.
 func Load(path string) (*ExperimentConfig, error) {
+	loadDotEnv(filepath.Join(filepath.Dir(path), ".env"))
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading experiment file %q: %w", path, err)
@@ -112,6 +118,37 @@ func applyDefaults(cfg *ExperimentConfig) {
 	}
 	if cfg.Judge.MaxTokens == 0 {
 		cfg.Judge.MaxTokens = 2048
+	}
+}
+
+// loadDotEnv parses a .env file and sets any KEY=VALUE pairs as environment
+// variables, skipping keys that are already set in the environment. Blank lines
+// and lines beginning with # are ignored. Silently no-ops if the file does not
+// exist.
+func loadDotEnv(path string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return // file not present — not an error
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, val, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		val = strings.TrimSpace(val)
+		// Strip optional surrounding quotes from the value.
+		if len(val) >= 2 && ((val[0] == '"' && val[len(val)-1] == '"') || (val[0] == '\'' && val[len(val)-1] == '\'')) {
+			val = val[1 : len(val)-1]
+		}
+		// Shell environment takes precedence over .env.
+		if _, exists := os.LookupEnv(key); !exists {
+			os.Setenv(key, val) //nolint:errcheck
+		}
 	}
 }
 

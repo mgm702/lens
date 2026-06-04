@@ -32,18 +32,26 @@ const (
 
 var sessionCounter atomic.Int64
 
+// credential holds a single set of login credentials used by session_init.
+type credential struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
 // Adapter sends turns to any HTTP or WebSocket-based AI API.
 type Adapter struct {
-	cfg    config.TargetConfig
-	pool   chan string // nil when no per-session auth tokens are needed
-	client *nethttp.Client
-	tmpl   *template.Template
+	cfg      config.TargetConfig
+	pool     chan string     // token pool — used when auth.token_env is set
+	credPool chan credential // credential pool — used when session_init is set
+	client   *nethttp.Client
+	tmpl     *template.Template
 }
 
 // session holds per-conversation state for a single eval case.
 type session struct {
 	id         string
 	token      string
+	cred       *credential     // non-nil when session_init is used; returned in CloseSession
 	sessionCfg types.SessionConfig
 	wsConn     *websocket.Conn // non-nil for websocket / actioncable streaming
 	wsMu       sync.Mutex      // serialises reads and writes on wsConn
@@ -60,9 +68,9 @@ type templateData struct {
 	Metadata  map[string]any
 }
 
-// New constructs an HTTPAdapter. It parses the request template and, when
-// bearer or api_key auth is configured, builds the token pool from the
-// comma-separated value of the auth.token_env environment variable.
+// New constructs an HTTPAdapter. It parses the request template and builds
+// either a token pool (from auth.token_env) or a credential pool (from
+// session_init.credentials_env) depending on which is configured.
 func New(cfg config.TargetConfig) (*Adapter, error) {
 	rawTmpl := cfg.RequestTemplate
 	if rawTmpl == "" {
@@ -73,8 +81,36 @@ func New(cfg config.TargetConfig) (*Adapter, error) {
 		return nil, fmt.Errorf("http adapter: parsing request_template: %w", err)
 	}
 
-	var pool chan string
-	if cfg.Auth.Type == "bearer" || cfg.Auth.Type == "api_key" || cfg.Auth.Type == "custom" {
+	a := &Adapter{
+		cfg:    cfg,
+		client: &nethttp.Client{Timeout: defaultTimeout},
+		tmpl:   tmpl,
+	}
+
+	if cfg.SessionInit != nil {
+		// session_init mode: credentials are loaded once; tokens are obtained
+		// per-case by calling the login endpoint at CreateSession time.
+		si := cfg.SessionInit
+		if si.CredentialsEnv == "" {
+			return nil, fmt.Errorf("http adapter: session_init.credentials_env is required")
+		}
+		raw := os.Getenv(si.CredentialsEnv)
+		if raw == "" {
+			return nil, fmt.Errorf("http adapter: environment variable %q (session_init.credentials_env) is not set", si.CredentialsEnv)
+		}
+		var creds []credential
+		if err := json.Unmarshal([]byte(raw), &creds); err != nil {
+			return nil, fmt.Errorf("http adapter: parsing %q as JSON credential array: %w", si.CredentialsEnv, err)
+		}
+		if len(creds) == 0 {
+			return nil, fmt.Errorf("http adapter: %q contains no credentials", si.CredentialsEnv)
+		}
+		a.credPool = make(chan credential, len(creds))
+		for _, c := range creds {
+			a.credPool <- c
+		}
+	} else if cfg.Auth.Type == "bearer" || cfg.Auth.Type == "api_key" || cfg.Auth.Type == "custom" {
+		// Static token pool mode: tokens are read from auth.token_env upfront.
 		if cfg.Auth.TokenEnv == "" {
 			return nil, fmt.Errorf("http adapter: auth.token_env is required for %s auth", cfg.Auth.Type)
 		}
@@ -83,46 +119,55 @@ func New(cfg config.TargetConfig) (*Adapter, error) {
 			return nil, fmt.Errorf("http adapter: environment variable %q (auth.token_env) is not set", cfg.Auth.TokenEnv)
 		}
 		tokens := strings.Split(val, ",")
-		pool = make(chan string, len(tokens))
+		a.pool = make(chan string, len(tokens))
 		for _, t := range tokens {
-			pool <- strings.TrimSpace(t)
+			a.pool <- strings.TrimSpace(t)
 		}
 	}
 
-	return &Adapter{
-		cfg:    cfg,
-		pool:   pool,
-		client: &nethttp.Client{Timeout: defaultTimeout},
-		tmpl:   tmpl,
-	}, nil
+	return a, nil
 }
 
-// CreateSession acquires an auth token (if pooled), creates the session, and
-// for WebSocket streaming types establishes and subscribes the WS connection.
+// CreateSession acquires an auth token (either from the credential pool via
+// login, or from the static token pool), creates the session, and for
+// WebSocket streaming types establishes and subscribes the WS connection.
 func (a *Adapter) CreateSession(ctx context.Context, cfg types.SessionConfig) (types.Session, error) {
-	var token string
-	if a.pool != nil {
+	sess := &session{
+		id:         fmt.Sprintf("http-%d", sessionCounter.Add(1)),
+		sessionCfg: cfg,
+	}
+
+	if a.credPool != nil {
+		// session_init mode: acquire a credential, login, get a fresh token.
+		var cred credential
 		select {
-		case token = <-a.pool:
+		case cred = <-a.credPool:
+		case <-ctx.Done():
+			return nil, fmt.Errorf("http adapter: waiting for credential: %w", ctx.Err())
+		}
+		token, err := a.doLogin(ctx, cred)
+		if err != nil {
+			a.credPool <- cred // return credential on login failure
+			return nil, err
+		}
+		sess.token = token
+		sess.cred = &cred
+	} else if a.pool != nil {
+		select {
+		case sess.token = <-a.pool:
 		case <-ctx.Done():
 			return nil, fmt.Errorf("http adapter: waiting for token: %w", ctx.Err())
 		}
 	} else if a.cfg.Auth.Type == "basic" {
-		token = a.buildBasicToken()
-	}
-
-	sess := &session{
-		id:         fmt.Sprintf("http-%d", sessionCounter.Add(1)),
-		token:      token,
-		sessionCfg: cfg,
+		sess.token = a.buildBasicToken()
 	}
 
 	if a.cfg.StreamingType == "websocket" || a.cfg.StreamingType == "actioncable" || a.cfg.StreamingType == "actioncable_rest" {
 		wsURL := a.wsURL()
-		header := a.wsHeaders(token)
+		header := a.wsHeaders(sess.token)
 		conn, _, err := websocket.DefaultDialer.DialContext(ctx, wsURL, header)
 		if err != nil {
-			a.returnToken(token)
+			a.returnToken(sess.token)
 			return nil, fmt.Errorf("http adapter: websocket dial %q: %w", wsURL, err)
 		}
 		sess.wsConn = conn
@@ -131,7 +176,7 @@ func (a *Adapter) CreateSession(ctx context.Context, cfg types.SessionConfig) (t
 			channel := a.channel()
 			if err := subscribeActionCable(conn, channel); err != nil {
 				conn.Close()
-				a.returnToken(token)
+				a.returnToken(sess.token)
 				return nil, fmt.Errorf("http adapter: actioncable subscribe: %w", err)
 			}
 		}
@@ -176,6 +221,11 @@ func (a *Adapter) CloseSession(ctx context.Context, s types.Session) error {
 		}
 	}
 
+	// Return the credential to the pool (session_init mode) or the token
+	// (static pool mode) so the next worker can acquire it.
+	if sess.cred != nil && a.credPool != nil {
+		a.credPool <- *sess.cred
+	}
 	a.returnToken(sess.token)
 	return nil
 }
@@ -411,4 +461,102 @@ func (a *Adapter) returnToken(token string) {
 	if a.pool != nil && token != "" {
 		a.pool <- token
 	}
+}
+
+// doLogin calls the session_init login endpoint with the given credential and
+// returns the extracted session token.
+func (a *Adapter) doLogin(ctx context.Context, cred credential) (string, error) {
+	si := a.cfg.SessionInit
+
+	method := strings.ToUpper(si.Method)
+	if method == "" {
+		method = nethttp.MethodPost
+	}
+
+	parsed, err := url.Parse(a.cfg.URL)
+	if err != nil {
+		return "", fmt.Errorf("http adapter: session_init: parsing target URL: %w", err)
+	}
+	loginURL := parsed.Scheme + "://" + parsed.Host + si.Path
+
+	// Render the body template, JSON-escaping credential values so they are
+	// safe to embed inside a JSON string literal.
+	bodyTmpl := si.Body
+	if bodyTmpl == "" {
+		bodyTmpl = `{"email":"{{.Email}}","password":"{{.Password}}"}`
+	}
+	emailJSON, _ := json.Marshal(cred.Email)
+	passJSON, _ := json.Marshal(cred.Password)
+	tmplData := struct{ Email, Password string }{
+		Email:    string(emailJSON[1 : len(emailJSON)-1]),
+		Password: string(passJSON[1 : len(passJSON)-1]),
+	}
+	loginTmpl, err := template.New("login").Parse(bodyTmpl)
+	if err != nil {
+		return "", fmt.Errorf("http adapter: session_init: parsing body template: %w", err)
+	}
+	var buf bytes.Buffer
+	if err := loginTmpl.Execute(&buf, tmplData); err != nil {
+		return "", fmt.Errorf("http adapter: session_init: rendering body template: %w", err)
+	}
+
+	req, err := nethttp.NewRequestWithContext(ctx, method, loginURL, strings.NewReader(buf.String()))
+	if err != nil {
+		return "", fmt.Errorf("http adapter: session_init: building request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("http adapter: session_init: POST %s: %w", loginURL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		raw, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("http adapter: session_init: login returned %d: %s", resp.StatusCode, raw)
+	}
+
+	// Extract token from response.
+	tokenPath := si.TokenPath
+	if strings.HasPrefix(tokenPath, "headers.") {
+		headerName := tokenPath[len("headers."):]
+		if strings.EqualFold(headerName, "set-cookie") {
+			cookies := resp.Header["Set-Cookie"]
+			if len(cookies) == 0 {
+				return "", fmt.Errorf("http adapter: session_init: no Set-Cookie header in login response")
+			}
+			return extractCookies(cookies), nil
+		}
+		val := resp.Header.Get(headerName)
+		if val == "" {
+			return "", fmt.Errorf("http adapter: session_init: header %q not found in login response", headerName)
+		}
+		return val, nil
+	}
+
+	// gjson path into response body.
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("http adapter: session_init: reading login response: %w", err)
+	}
+	result := gjson.GetBytes(raw, tokenPath)
+	if !result.Exists() {
+		return "", fmt.Errorf("http adapter: session_init: token_path %q not found in response: %s", tokenPath, raw)
+	}
+	return result.String(), nil
+}
+
+// extractCookies extracts the name=value portion from each Set-Cookie header
+// and joins them with "; ", producing a value suitable for a Cookie header.
+func extractCookies(cookies []string) string {
+	parts := make([]string, 0, len(cookies))
+	for _, c := range cookies {
+		if idx := strings.Index(c, ";"); idx >= 0 {
+			parts = append(parts, strings.TrimSpace(c[:idx]))
+		} else {
+			parts = append(parts, strings.TrimSpace(c))
+		}
+	}
+	return strings.Join(parts, "; ")
 }

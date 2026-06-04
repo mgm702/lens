@@ -39,6 +39,7 @@ type caseRow struct {
 	ScenarioID string
 	InfoLevel  string
 	Rep        int
+	RunAt      string
 	EndReason  string
 	Turns      int
 	Verdict    *judgeVerdict
@@ -83,6 +84,7 @@ func Build(res []results.CaseResult, outputDir string) error {
 			ScenarioID: r.ScenarioID,
 			InfoLevel:  r.InfoLevel,
 			Rep:        r.Rep,
+			RunAt:      r.RunAt.Format("2006-01-02 15:04:05"),
 			EndReason:  r.EndReason,
 			Turns:      len(r.Transcript.Turns),
 		}

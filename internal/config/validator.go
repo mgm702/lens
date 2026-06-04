@@ -63,8 +63,25 @@ func Validate(cfg *ExperimentConfig) []ValidationError {
 			if !validAuth[cfg.Target.Auth.Type] {
 				add("target.auth.type", "unknown value %q; must be one of: bearer, api_key, basic, custom", cfg.Target.Auth.Type)
 			}
-			if cfg.Target.Auth.TokenEnv == "" && cfg.Target.Auth.Type != "basic" {
-				add("target.auth.token_env", "required when auth.type is %q", cfg.Target.Auth.Type)
+			// token_env is not required when session_init is configured — tokens
+			// are obtained dynamically via the login endpoint in that case.
+			if cfg.Target.SessionInit == nil && cfg.Target.Auth.TokenEnv == "" && cfg.Target.Auth.Type != "basic" {
+				add("target.auth.token_env", "required when auth.type is %q (or configure session_init to obtain tokens automatically)", cfg.Target.Auth.Type)
+			}
+		}
+		if cfg.Target.SessionInit != nil {
+			si := cfg.Target.SessionInit
+			if si.Path == "" {
+				add("target.session_init.path", "required")
+			}
+			if si.CredentialsEnv == "" {
+				add("target.session_init.credentials_env", "required")
+			}
+			if si.TokenPath == "" {
+				add("target.session_init.token_path", "required")
+			}
+			if cfg.Target.Auth.TokenEnv != "" {
+				add("target.session_init", "session_init and auth.token_env are mutually exclusive — remove auth.token_env when using session_init")
 			}
 		}
 		if cfg.Target.Streaming && cfg.Target.StreamingType == "" {

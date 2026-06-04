@@ -49,8 +49,12 @@ func New(cfg config.TargetConfig) (*Adapter, error) {
 		system = string(data)
 	}
 
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	if apiKey == "" {
+		return nil, fmt.Errorf("openai adapter: OPENAI_API_KEY is not set")
+	}
 	client := openai.NewClient(
-		option.WithAPIKey(os.Getenv("OPENAI_API_KEY")),
+		option.WithAPIKey(apiKey),
 	)
 	return &Adapter{
 		client: client,

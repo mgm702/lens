@@ -59,6 +59,11 @@ type TargetConfig struct {
 	// Session management: optional endpoint to reset server-side conversation state
 	SessionReset *SessionResetConfig `yaml:"session_reset"`
 
+	// SessionInit, if set, configures per-case login to obtain session tokens
+	// automatically — replacing the need for a pre-run bootstrap script.
+	// Mutually exclusive with auth.token_env.
+	SessionInit *SessionInitConfig `yaml:"session_init"`
+
 	// Mock adapter field
 	ScriptFile string `yaml:"script_file"`
 }
@@ -73,6 +78,30 @@ type AuthConfig struct {
 	Header string `yaml:"header"`
 	// UsernameEnv is the env var for the username when Type is "basic".
 	UsernameEnv string `yaml:"username_env"`
+}
+
+// SessionInitConfig describes an HTTP login request the adapter executes once
+// per eval case to obtain a session token, eliminating the need for a pre-run
+// bootstrap script. N credentials in credentials_env = N concurrent workers.
+type SessionInitConfig struct {
+	// Method is the HTTP method for the login request. Defaults to "POST".
+	Method string `yaml:"method"`
+	// Path is the login endpoint relative to the target URL base,
+	// e.g. "/api/users/sign_in".
+	Path string `yaml:"path"`
+	// Body is an optional request body template. Supports {{.Email}} and
+	// {{.Password}} placeholders (values are JSON-escaped automatically).
+	// Defaults to '{"email":"{{.Email}}","password":"{{.Password}}"}'.
+	Body string `yaml:"body"`
+	// CredentialsEnv is the name of the environment variable containing a
+	// JSON array of {"email":"...","password":"..."} objects — one per
+	// concurrent worker.
+	CredentialsEnv string `yaml:"credentials_env"`
+	// TokenPath describes where to extract the session token from the login
+	// response. Use "headers.set-cookie" to join Set-Cookie name=value pairs,
+	// "headers.<name>" for any other response header, or a gjson path
+	// (e.g. "data.token") to extract from the response body.
+	TokenPath string `yaml:"token_path"`
 }
 
 // SessionResetConfig describes an HTTP endpoint the adapter calls to wipe

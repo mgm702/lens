@@ -427,6 +427,128 @@ func TestHTTPAdapter_ActionCableStreaming(t *testing.T) {
 	assert.Equal(t, "Sure, here you go.", reply)
 }
 
+// ── session_init ──────────────────────────────────────────────────────────────
+
+func TestHTTPAdapter_SessionInit_CookieToken(t *testing.T) {
+	t.Setenv("TEST_CREDS", `[{"email":"u@example.com","password":"pw"}]`)
+	var gotCookie string
+
+	srv := echoServer(t, func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if r.URL.Path == "/login" {
+			w.Header().Add("Set-Cookie", "session=abc123; Path=/; HttpOnly")
+			w.Header().Add("Set-Cookie", "uid=42; Path=/")
+			w.WriteHeader(nethttp.StatusOK)
+			return
+		}
+		gotCookie = r.Header.Get("Cookie")
+		fmt.Fprintln(w, `{"reply":"ok"}`)
+	})
+
+	c := cfg(srv.URL)
+	c.Auth = config.AuthConfig{Type: "custom", Header: "Cookie"}
+	c.SessionInit = &config.SessionInitConfig{
+		Path:           "/login",
+		CredentialsEnv: "TEST_CREDS",
+		TokenPath:      "headers.set-cookie",
+	}
+	a, err := httpadapter.New(c)
+	require.NoError(t, err)
+
+	s := newSession(t, a)
+	sendTurn(t, a, s, "hello")
+	assert.Equal(t, "session=abc123; uid=42", gotCookie)
+}
+
+func TestHTTPAdapter_SessionInit_BodyToken(t *testing.T) {
+	t.Setenv("TEST_CREDS", `[{"email":"u@example.com","password":"pw"}]`)
+	var gotAuth string
+
+	srv := echoServer(t, func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if r.URL.Path == "/login" {
+			fmt.Fprintln(w, `{"data":{"token":"bearer-xyz"}}`)
+			return
+		}
+		gotAuth = r.Header.Get("Authorization")
+		fmt.Fprintln(w, `{"reply":"ok"}`)
+	})
+
+	c := cfg(srv.URL)
+	c.Auth = config.AuthConfig{Type: "bearer"}
+	c.SessionInit = &config.SessionInitConfig{
+		Path:           "/login",
+		CredentialsEnv: "TEST_CREDS",
+		TokenPath:      "data.token",
+	}
+	a, err := httpadapter.New(c)
+	require.NoError(t, err)
+
+	s := newSession(t, a)
+	sendTurn(t, a, s, "hello")
+	assert.Equal(t, "Bearer bearer-xyz", gotAuth)
+}
+
+func TestHTTPAdapter_SessionInit_CredentialPool(t *testing.T) {
+	t.Setenv("TEST_CREDS", `[{"email":"u1@example.com","password":"pw"},{"email":"u2@example.com","password":"pw"}]`)
+	var mu sync.Mutex
+	loggedIn := make(map[string]bool)
+
+	srv := echoServer(t, func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if r.URL.Path == "/login" {
+			var body struct {
+				Email string `json:"email"`
+			}
+			raw, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(raw, &body)
+			mu.Lock()
+			loggedIn[body.Email] = true
+			mu.Unlock()
+			fmt.Fprintln(w, `{"token":"tok"}`)
+			return
+		}
+		fmt.Fprintln(w, `{"reply":"ok"}`)
+	})
+
+	c := cfg(srv.URL)
+	c.Auth = config.AuthConfig{Type: "bearer"}
+	c.SessionInit = &config.SessionInitConfig{
+		Path:           "/login",
+		CredentialsEnv: "TEST_CREDS",
+		TokenPath:      "token",
+	}
+	a, err := httpadapter.New(c)
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s := newSession(t, a)
+			sendTurn(t, a, s, "hi")
+			require.NoError(t, a.CloseSession(context.Background(), s))
+		}()
+	}
+	wg.Wait()
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.True(t, loggedIn["u1@example.com"], "expected u1 to log in")
+	assert.True(t, loggedIn["u2@example.com"], "expected u2 to log in")
+}
+
+func TestHTTPAdapter_SessionInit_MissingCredentialsEnv(t *testing.T) {
+	c := cfg("http://localhost")
+	c.Auth = config.AuthConfig{Type: "bearer"}
+	c.SessionInit = &config.SessionInitConfig{
+		Path:           "/login",
+		CredentialsEnv: "NONEXISTENT_CREDS_ENV_XYZ",
+		TokenPath:      "token",
+	}
+	_, err := httpadapter.New(c)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "NONEXISTENT_CREDS_ENV_XYZ")
+}
+
 // ── New() errors ──────────────────────────────────────────────────────────────
 
 func TestHTTPAdapter_BadTemplate(t *testing.T) {

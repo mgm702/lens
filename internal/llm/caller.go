@@ -34,10 +34,18 @@ type Caller interface {
 func New(cfg config.LLMConfig) (Caller, error) {
 	switch cfg.Provider {
 	case "anthropic":
-		client := anthropic.NewClient(option.WithAPIKey(os.Getenv("ANTHROPIC_API_KEY")))
+		apiKey := os.Getenv("ANTHROPIC_API_KEY")
+		if apiKey == "" {
+			return nil, fmt.Errorf("llm: ANTHROPIC_API_KEY is not set")
+		}
+		client := anthropic.NewClient(option.WithAPIKey(apiKey))
 		return &anthropicCaller{client: client, cfg: cfg}, nil
 	case "openai":
-		client := openai.NewClient(openaiopt.WithAPIKey(os.Getenv("OPENAI_API_KEY")))
+		apiKey := os.Getenv("OPENAI_API_KEY")
+		if apiKey == "" {
+			return nil, fmt.Errorf("llm: OPENAI_API_KEY is not set")
+		}
+		client := openai.NewClient(openaiopt.WithAPIKey(apiKey))
 		return &openaiCaller{client: client, cfg: cfg}, nil
 	case "bedrock":
 		awsCfg, err := awsconfig.LoadDefaultConfig(context.Background())

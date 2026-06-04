@@ -71,6 +71,7 @@
         <th>Scenario</th>
         <th>Info Level</th>
         <th>Rep</th>
+        <th>Run At</th>
         <th>End Reason</th>
         <th>Turns</th>
         <th>Composite</th>
@@ -84,6 +85,7 @@
         <td>{{.ScenarioID}}</td>
         <td>{{.InfoLevel}}</td>
         <td>{{.Rep}}</td>
+        <td style="white-space:nowrap; color:#6c757d; font-size:0.8rem;">{{.RunAt}}</td>
         <td><span class="badge badge-{{endReasonClass .EndReason}}">{{.EndReason}}</span></td>
         <td>{{.Turns}}</td>
         <td>
